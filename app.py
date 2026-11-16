@@ -28,20 +28,12 @@ def load_db():
 def save_db(df):
     df.to_excel(DB_FILE, index=False)
 
-# 🔥 입력칸 기억(Key)을 싹 지워주는 마법의 함수 추가
-def clear_form_keys():
-    keys_to_clear = []
-    for i in range(1, 6):
-        keys_to_clear.extend([f"u_{i}", f"um_{i}"])
-    for i in range(1, 7):
-        keys_to_clear.extend([f"bn_{i}", f"bp_{i}", f"bm_{i}", f"bu_{i}", f"bd_{i}"])
-    for k in WEIGHTS.keys():
-        keys_to_clear.append(f"s_{k}")
-        keys_to_clear.append(f"cn_{k}")
-    
-    for key in keys_to_clear:
-        if key in st.session_state:
-            del st.session_state[key]
+# 🔥 엑셀의 빈칸(nan)을 완벽하게 처리해주는 마법의 함수
+def get_val(r, key):
+    val = r.get(key, "")
+    if pd.isna(val) or str(val).strip().lower() == 'nan':
+        return ""
+    return str(val).strip()
 
 if 'db' not in st.session_state:
     st.session_state.db = load_db()
@@ -71,13 +63,12 @@ with st.sidebar:
         
     edit_sel = st.selectbox("🔄 수정/삭제할 매물 선택", options, index=default_idx)
 
+    # 매물이 바뀌면 새로고침 (이제 기억력 버그가 없어서 깔끔하게 새로 불러옵니다)
     if edit_sel != "-" and st.session_state.edit_target != edit_sel:
         st.session_state.edit_target = edit_sel
-        clear_form_keys() # 마법 부리기
         st.rerun()
     elif edit_sel == "-" and st.session_state.edit_target is not None:
         st.session_state.edit_target = None
-        clear_form_keys() # 마법 부리기
         st.rerun()
 
     if st.button("❌ 선택 매물 삭제", type="primary"):
@@ -85,13 +76,11 @@ with st.sidebar:
             st.session_state.db = st.session_state.db[st.session_state.db['매물명'].astype(str) != edit_sel]
             save_db(st.session_state.db)
             st.session_state.edit_target = None
-            clear_form_keys() # 마법 부리기
             st.success("삭제되었습니다.")
             st.rerun()
 
     if st.button("🆕 새 매물 (폼 초기화)"):
         st.session_state.edit_target = None
-        clear_form_keys() # 마법 부리기
         st.rerun()
 
 # ==============================================================================
@@ -103,6 +92,9 @@ if st.session_state.edit_target and not st.session_state.db.empty:
     if not target_df.empty:
         row = target_df.iloc[0].to_dict()
 
+# 🔥 화면이 새로고침될 때마다 입력칸을 완벽하게 새로 그리기 위한 고유 이름표 생성
+suffix = str(st.session_state.edit_target) if st.session_state.edit_target else "new"
+
 # ==============================================================================
 # 4. 메인 화면 (입력 폼 - 탭으로 구성)
 # ==============================================================================
@@ -112,33 +104,34 @@ with st.form("property_form"):
     with tab1:
         col1, col2 = st.columns(2)
         with col1:
-            title = st.text_input("매물명 (필수)", value=str(row.get("매물명", "")))
-            own_name = st.text_input("소유자 존함", value=str(row.get("소유자_존함", "")))
-            own_phone = st.text_input("소유자 연락처", value=str(row.get("소유자_연락처", "010")))
-            agt_name = st.text_input("대리인 존함", value=str(row.get("대리인_존함", "")))
-            agt_phone = st.text_input("대리인 연락처", value=str(row.get("대리인_연락처", "010")))
+            title = st.text_input("매물명 (필수)", value=get_val(row, "매물명"), key=f"title_{suffix}")
+            own_name = st.text_input("소유자 존함", value=get_val(row, "소유자_존함"), key=f"own_name_{suffix}")
+            own_phone = st.text_input("소유자 연락처", value=get_val(row, "소유자_연락처") or "010", key=f"own_phone_{suffix}")
+            agt_name = st.text_input("대리인 존함", value=get_val(row, "대리인_존함"), key=f"agt_name_{suffix}")
+            agt_phone = st.text_input("대리인 연락처", value=get_val(row, "대리인_연락처") or "010", key=f"agt_phone_{suffix}")
 
         with col2:
-            core_analysis = st.text_area("💡🎯 킬러앱 (고객 핵심 분석)", value=str(row.get("핵심쟁점_분석", "")), height=90)
-            memo = st.text_area("주요 메모 사항", value=str(row.get("주요_메모_사항", "")), height=90)
+            core_analysis = st.text_area("💡🎯 킬러앱 (고객 핵심 분석)", value=get_val(row, "핵심쟁점_분석"), height=90, key=f"core_{suffix}")
+            memo = st.text_area("주요 메모 사항", value=get_val(row, "주요_메모_사항"), height=90, key=f"memo_{suffix}")
 
             st.markdown("**📅 연락 주기 설정**")
             c1, c2 = st.columns(2)
-            last_contact_val = row.get("매물측_최종연락일시", "")
-            last_contact = c1.date_input("최종연락일", value=pd.to_datetime(last_contact_val).date() if pd.notna(last_contact_val) and last_contact_val != "" else datetime.now().date())
+            last_contact_val = get_val(row, "매물측_최종연락일시")
+            last_contact = c1.date_input("최종연락일", value=pd.to_datetime(last_contact_val).date() if last_contact_val else datetime.now().date(), key=f"last_contact_{suffix}")
             
             cycle_opts = ["선택안함", "매일(1일)", "3일", "매주(7일)", "10일", "격주(14일)", "매월(30일)", "격월(60일)", "3개월(90일)", "6개월(180일)", "1년(365일)", "2년(730일)"]
-            current_cycle = row.get("연락_주기", "선택안함")
-            cycle_idx = cycle_opts.index(current_cycle) if current_cycle in cycle_opts else 0
-            cycle_opt = c2.selectbox("연락 주기", cycle_opts, index=cycle_idx)
+            current_cycle = get_val(row, "연락_주기")
+            if current_cycle not in cycle_opts:
+                current_cycle = "선택안함"
+            cycle_opt = c2.selectbox("연락 주기", cycle_opts, index=cycle_opts.index(current_cycle), key=f"cycle_opt_{suffix}")
 
         st.markdown("**🌐 매물 URL 및 메모 (최대 5개)**")
         url_cols = st.columns(5)
         urls = {}
         for i in range(1, 6):
             with url_cols[i-1]:
-                urls[f"url_{i}"] = st.text_input(f"URL {i}", value=str(row.get(f"매물_URL{i}", "")), key=f"u_{i}")
-                urls[f"memo_{i}"] = st.text_input(f"URL {i} 메모", value=str(row.get(f"매물_URL{i}_메모", "")), key=f"um_{i}")
+                urls[f"url_{i}"] = st.text_input(f"URL {i}", value=get_val(row, f"매물_URL{i}"), key=f"u_{i}_{suffix}")
+                urls[f"memo_{i}"] = st.text_input(f"URL {i} 메모", value=get_val(row, f"매물_URL{i}_메모"), key=f"um_{i}_{suffix}")
 
     with tab2:
         st.subheader("👤 가망 고객 (최대 6명)")
@@ -146,13 +139,13 @@ with st.form("property_form"):
         for i in range(1, 7):
             with st.expander(f"가망 고객 {i}", expanded=(i==1)):
                 c1, c2, c3, c4 = st.columns(4)
-                buyers[f"name_{i}"] = c1.text_input(f"존함", value=str(row.get(f"가망{i}_존함", "")), key=f"bn_{i}")
-                buyers[f"phone_{i}"] = c2.text_input(f"연락처", value=str(row.get(f"가망{i}_연락처", "010")), key=f"bp_{i}")
-                buyers[f"memo_{i}"] = c3.text_input(f"메모/요청", value=str(row.get(f"가망{i}_메모", "")), key=f"bm_{i}")
-                buyers[f"url_{i}"] = c4.text_input(f"참조 URL", value=str(row.get(f"가망{i}_URL", "")), key=f"bu_{i}")
+                buyers[f"name_{i}"] = c1.text_input(f"존함", value=get_val(row, f"가망{i}_존함"), key=f"bn_{i}_{suffix}")
+                buyers[f"phone_{i}"] = c2.text_input(f"연락처", value=get_val(row, f"가망{i}_연락처") or "010", key=f"bp_{i}_{suffix}")
+                buyers[f"memo_{i}"] = c3.text_input(f"메모/요청", value=get_val(row, f"가망{i}_메모"), key=f"bm_{i}_{suffix}")
+                buyers[f"url_{i}"] = c4.text_input(f"참조 URL", value=get_val(row, f"가망{i}_URL"), key=f"bu_{i}_{suffix}")
                 
-                cdate_val = row.get(f"가망{i}_최종컨택일", "")
-                buyers[f"cdate_{i}"] = st.date_input(f"최종컨택일", value=pd.to_datetime(cdate_val).date() if pd.notna(cdate_val) and cdate_val != "" else None, key=f"bd_{i}")
+                cdate_val = get_val(row, f"가망{i}_최종컨택일")
+                buyers[f"cdate_{i}"] = st.date_input(f"최종컨택일", value=pd.to_datetime(cdate_val).date() if cdate_val else None, key=f"bd_{i}_{suffix}")
 
     with tab3:
         st.subheader("🎯 13대 핵심 지표 평가 (0~10점)")
@@ -162,12 +155,18 @@ with st.form("property_form"):
         idx = 0
         for k, weight in WEIGHTS.items():
             col = cols[idx % 2]
+            # 점수 데이터가 없거나 깨져있으면 기본값 5점으로 세팅
+            val_score = pd.to_numeric(row.get(f"점수_{k}", 5), errors='coerce')
+            val_score = int(val_score) if pd.notna(val_score) else 5
+            val_score = max(0, min(10, val_score))
+
             if k in ["자율1", "자율2"]:
                 num = "1" if k == "자율1" else "2"
-                custom_names[k] = col.text_input(f"자율지표 {num} 이름", value=str(row.get(f"자율지표{num}_이름", f"자율지표{num}")), key=f"cn_{k}")
-                scores[k] = col.slider(f"{custom_names[k]} (가중치 {weight})", 0, 10, int(row.get(f"점수_{k}", 5)), key=f"s_{k}")
+                default_cn = get_val(row, f"자율지표{num}_이름") or f"자율지표{num}"
+                custom_names[k] = col.text_input(f"자율지표 {num} 이름", value=default_cn, key=f"cn_{k}_{suffix}")
+                scores[k] = col.slider(f"{custom_names[k]} (가중치 {weight})", 0, 10, val_score, key=f"s_{k}_{suffix}")
             else:
-                scores[k] = col.slider(f"{k} (가중치 {weight})", 0, 10, int(row.get(f"점수_{k}", 5)), key=f"s_{k}")
+                scores[k] = col.slider(f"{k} (가중치 {weight})", 0, 10, val_score, key=f"s_{k}_{suffix}")
             idx += 1
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -221,7 +220,6 @@ if submitted:
         
         st.success(f"✅ '{title}' 매물이 성공적으로 저장되었습니다! (종합 점수: {final_score:.2f}점)")
         st.session_state.edit_target = None
-        clear_form_keys() # 저장 후 폼 비우기
         time.sleep(1)
         st.rerun()
 
@@ -246,7 +244,7 @@ if not st.session_state.db.empty:
         display_cols = [c for c in display_cols if c in view_df.columns]
         
         def make_tel_link(phone):
-            if pd.isna(phone) or str(phone).strip() in ["", "010"]: return None
+            if pd.isna(phone) or str(phone).strip() in ["", "010", "nan"]: return None
             clean = re.sub(r'[^0-9]', '', str(phone))
             return f"tel:{clean}"
             
@@ -273,7 +271,6 @@ if not st.session_state.db.empty:
             selected_name = view_df.iloc[selected_idx]['매물명']
             if st.session_state.edit_target != selected_name:
                 st.session_state.edit_target = selected_name
-                clear_form_keys() # 클릭 시 마법 부리기
                 st.rerun()
     else:
         st.info("검색 결과가 없습니다.")
