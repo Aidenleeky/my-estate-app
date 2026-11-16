@@ -28,12 +28,21 @@ def load_db():
 def save_db(df):
     df.to_excel(DB_FILE, index=False)
 
-# 🔥 엑셀의 빈칸(nan)을 완벽하게 처리해주는 마법의 함수
+# 엑셀의 빈칸(nan)을 완벽하게 처리해주는 함수
 def get_val(r, key):
     val = r.get(key, "")
     if pd.isna(val) or str(val).strip().lower() == 'nan':
         return ""
     return str(val).strip()
+
+# 🔗 주소에 http/https를 자동으로 붙여주는 함수
+def clean_url(url):
+    url = str(url).strip()
+    if not url or url.lower() == 'nan':
+        return ""
+    if not url.startswith(("http://", "https://")):
+        return f"https://{url}"
+    return url
 
 if 'db' not in st.session_state:
     st.session_state.db = load_db()
@@ -63,7 +72,6 @@ with st.sidebar:
         
     edit_sel = st.selectbox("🔄 수정/삭제할 매물 선택", options, index=default_idx)
 
-    # 매물이 바뀌면 새로고침 (이제 기억력 버그가 없어서 깔끔하게 새로 불러옵니다)
     if edit_sel != "-" and st.session_state.edit_target != edit_sel:
         st.session_state.edit_target = edit_sel
         st.rerun()
@@ -92,11 +100,11 @@ if st.session_state.edit_target and not st.session_state.db.empty:
     if not target_df.empty:
         row = target_df.iloc[0].to_dict()
 
-# 🔥 화면이 새로고침될 때마다 입력칸을 완벽하게 새로 그리기 위한 고유 이름표 생성
+# 화면 새로고침 시 입력칸을 완벽하게 새로 그리기 위한 고유 이름표
 suffix = str(st.session_state.edit_target) if st.session_state.edit_target else "new"
 
 # ==============================================================================
-# 4. 메인 화면 (입력 폼 - 탭으로 구성)
+# 4. 메인 화면 (입력 폼)
 # ==============================================================================
 with st.form("property_form"):
     tab1, tab2, tab3 = st.tabs(["📋 매물 정보", "👤 가망 고객 (1~6)", "🎯 13대 핵심 지표"])
@@ -131,6 +139,11 @@ with st.form("property_form"):
         for i in range(1, 6):
             with url_cols[i-1]:
                 urls[f"url_{i}"] = st.text_input(f"URL {i}", value=get_val(row, f"매물_URL{i}"), key=f"u_{i}_{suffix}")
+                # 🔗 링크 열기 버튼 추가
+                link_target = clean_url(urls[f"url_{i}"])
+                if link_target:
+                    st.link_button("🔗 링크 열기", link_target, use_container_width=True)
+                
                 urls[f"memo_{i}"] = st.text_input(f"URL {i} 메모", value=get_val(row, f"매물_URL{i}_메모"), key=f"um_{i}_{suffix}")
 
     with tab2:
@@ -142,7 +155,13 @@ with st.form("property_form"):
                 buyers[f"name_{i}"] = c1.text_input(f"존함", value=get_val(row, f"가망{i}_존함"), key=f"bn_{i}_{suffix}")
                 buyers[f"phone_{i}"] = c2.text_input(f"연락처", value=get_val(row, f"가망{i}_연락처") or "010", key=f"bp_{i}_{suffix}")
                 buyers[f"memo_{i}"] = c3.text_input(f"메모/요청", value=get_val(row, f"가망{i}_메모"), key=f"bm_{i}_{suffix}")
+                
+                # 가망 고객 참조 URL 및 링크 버튼
                 buyers[f"url_{i}"] = c4.text_input(f"참조 URL", value=get_val(row, f"가망{i}_URL"), key=f"bu_{i}_{suffix}")
+                link_target_buyer = clean_url(buyers[f"url_{i}"])
+                if link_target_buyer:
+                    with c4:
+                        st.link_button("🔗 참조 링크 열기", link_target_buyer, use_container_width=True)
                 
                 cdate_val = get_val(row, f"가망{i}_최종컨택일")
                 buyers[f"cdate_{i}"] = st.date_input(f"최종컨택일", value=pd.to_datetime(cdate_val).date() if cdate_val else None, key=f"bd_{i}_{suffix}")
@@ -155,7 +174,6 @@ with st.form("property_form"):
         idx = 0
         for k, weight in WEIGHTS.items():
             col = cols[idx % 2]
-            # 점수 데이터가 없거나 깨져있으면 기본값 5점으로 세팅
             val_score = pd.to_numeric(row.get(f"점수_{k}", 5), errors='coerce')
             val_score = int(val_score) if pd.notna(val_score) else 5
             val_score = max(0, min(10, val_score))
@@ -224,7 +242,7 @@ if submitted:
         st.rerun()
 
 # ==============================================================================
-# 6. 하단 대시보드 (순위 표) - 클릭 기능 및 전화번호 수정 완료
+# 6. 하단 대시보드 (순위 표)
 # ==============================================================================
 st.markdown("---")
 st.subheader("📊 실시간 매물 순위 대시보드 (매물명을 클릭하면 위 폼으로 불러옵니다)")
