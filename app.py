@@ -49,10 +49,19 @@ with st.sidebar:
     search_kwd = st.text_input("매물명 실시간 검색")
 
     options = ["-"] + st.session_state.db['매물명'].astype(str).tolist() if not st.session_state.db.empty else ["-"]
-    edit_sel = st.selectbox("🔄 수정/삭제할 매물 선택", options)
+    
+    # 현재 선택된 매물이 있다면 드롭다운 인덱스 맞추기
+    default_idx = 0
+    if st.session_state.edit_target in options:
+        default_idx = options.index(st.session_state.edit_target)
+        
+    edit_sel = st.selectbox("🔄 수정/삭제할 매물 선택", options, index=default_idx)
 
     if edit_sel != "-" and st.session_state.edit_target != edit_sel:
         st.session_state.edit_target = edit_sel
+        st.rerun()
+    elif edit_sel == "-" and st.session_state.edit_target is not None:
+        st.session_state.edit_target = None
         st.rerun()
 
     if st.button("❌ 선택 매물 삭제", type="primary"):
@@ -198,10 +207,10 @@ if submitted:
         st.rerun()
 
 # ==============================================================================
-# 6. 하단 대시보드 (순위 표)
+# 6. 하단 대시보드 (순위 표) - 클릭 기능 및 전화번호 수정 완료
 # ==============================================================================
 st.markdown("---")
-st.subheader("📊 실시간 매물 순위 대시보드")
+st.subheader("📊 실시간 매물 순위 대시보드 (매물명을 클릭하면 위 폼으로 불러옵니다)")
 
 if not st.session_state.db.empty:
     view_df = st.session_state.db.copy()
@@ -217,26 +226,39 @@ if not st.session_state.db.empty:
         display_cols = ["매물명", "종합_성사_점수", "점수합계", "소유자_존함", "소유자_연락처", "대리인_연락처", "매물측_최종연락일시", "연락_주기"]
         display_cols = [c for c in display_cols if c in view_df.columns]
         
+        # 전화번호를 tel: 링크로 깔끔하게 변환
         def make_tel_link(phone):
-            if pd.isna(phone) or str(phone).strip() in ["", "010"]: return phone
+            if pd.isna(phone) or str(phone).strip() in ["", "010"]: return None
             clean = re.sub(r'[^0-9]', '', str(phone))
-            return f"[📞 {phone}](tel:{clean})"
+            return f"tel:{clean}"
             
         for col in ["소유자_연락처", "대리인_연락처"]:
             if col in view_df.columns:
                 view_df[col] = view_df[col].apply(make_tel_link)
 
-        st.dataframe(
+        # 행 클릭(선택) 기능이 추가된 표 그리기
+        event = st.dataframe(
             view_df[display_cols], 
             use_container_width=True, 
             hide_index=True,
+            on_select="rerun",             # 클릭 시 새로고침
+            selection_mode="single-row",   # 한 줄만 선택 가능
             column_config={
-                "매물명": st.column_config.TextColumn("매물명", width="medium"),
+                "매물명": st.column_config.TextColumn("매물명 (클릭하여 불러오기)", width="medium"),
                 "종합_성사_점수": st.column_config.NumberColumn("종합 점수", format="%.2f"),
                 "소유자_연락처": st.column_config.LinkColumn("소유자 연락처", display_text="📞 전화걸기"),
                 "대리인_연락처": st.column_config.LinkColumn("대리인 연락처", display_text="📞 전화걸기")
             }
         )
+        
+        # 표에서 매물이 클릭(선택)되었을 때 동작
+        if len(event.selection.rows) > 0:
+            selected_idx = event.selection.rows[0]
+            selected_name = view_df.iloc[selected_idx]['매물명']
+            # 현재 불러온 매물과 다르다면 새로 불러오기
+            if st.session_state.edit_target != selected_name:
+                st.session_state.edit_target = selected_name
+                st.rerun() # 화면을 새로고침하여 상단 폼을 채움
     else:
         st.info("검색 결과가 없습니다.")
 else:
