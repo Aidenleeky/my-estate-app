@@ -28,6 +28,21 @@ def load_db():
 def save_db(df):
     df.to_excel(DB_FILE, index=False)
 
+# 🔥 입력칸 기억(Key)을 싹 지워주는 마법의 함수 추가
+def clear_form_keys():
+    keys_to_clear = []
+    for i in range(1, 6):
+        keys_to_clear.extend([f"u_{i}", f"um_{i}"])
+    for i in range(1, 7):
+        keys_to_clear.extend([f"bn_{i}", f"bp_{i}", f"bm_{i}", f"bu_{i}", f"bd_{i}"])
+    for k in WEIGHTS.keys():
+        keys_to_clear.append(f"s_{k}")
+        keys_to_clear.append(f"cn_{k}")
+    
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+
 if 'db' not in st.session_state:
     st.session_state.db = load_db()
 if 'edit_target' not in st.session_state:
@@ -50,7 +65,6 @@ with st.sidebar:
 
     options = ["-"] + st.session_state.db['매물명'].astype(str).tolist() if not st.session_state.db.empty else ["-"]
     
-    # 현재 선택된 매물이 있다면 드롭다운 인덱스 맞추기
     default_idx = 0
     if st.session_state.edit_target in options:
         default_idx = options.index(st.session_state.edit_target)
@@ -59,9 +73,11 @@ with st.sidebar:
 
     if edit_sel != "-" and st.session_state.edit_target != edit_sel:
         st.session_state.edit_target = edit_sel
+        clear_form_keys() # 마법 부리기
         st.rerun()
     elif edit_sel == "-" and st.session_state.edit_target is not None:
         st.session_state.edit_target = None
+        clear_form_keys() # 마법 부리기
         st.rerun()
 
     if st.button("❌ 선택 매물 삭제", type="primary"):
@@ -69,11 +85,13 @@ with st.sidebar:
             st.session_state.db = st.session_state.db[st.session_state.db['매물명'].astype(str) != edit_sel]
             save_db(st.session_state.db)
             st.session_state.edit_target = None
+            clear_form_keys() # 마법 부리기
             st.success("삭제되었습니다.")
             st.rerun()
 
     if st.button("🆕 새 매물 (폼 초기화)"):
         st.session_state.edit_target = None
+        clear_form_keys() # 마법 부리기
         st.rerun()
 
 # ==============================================================================
@@ -146,10 +164,10 @@ with st.form("property_form"):
             col = cols[idx % 2]
             if k in ["자율1", "자율2"]:
                 num = "1" if k == "자율1" else "2"
-                custom_names[k] = col.text_input(f"자율지표 {num} 이름", value=str(row.get(f"자율지표{num}_이름", f"자율지표{num}")))
-                scores[k] = col.slider(f"{custom_names[k]} (가중치 {weight})", 0, 10, int(row.get(f"점수_{k}", 5)))
+                custom_names[k] = col.text_input(f"자율지표 {num} 이름", value=str(row.get(f"자율지표{num}_이름", f"자율지표{num}")), key=f"cn_{k}")
+                scores[k] = col.slider(f"{custom_names[k]} (가중치 {weight})", 0, 10, int(row.get(f"점수_{k}", 5)), key=f"s_{k}")
             else:
-                scores[k] = col.slider(f"{k} (가중치 {weight})", 0, 10, int(row.get(f"점수_{k}", 5)))
+                scores[k] = col.slider(f"{k} (가중치 {weight})", 0, 10, int(row.get(f"점수_{k}", 5)), key=f"s_{k}")
             idx += 1
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -203,6 +221,7 @@ if submitted:
         
         st.success(f"✅ '{title}' 매물이 성공적으로 저장되었습니다! (종합 점수: {final_score:.2f}점)")
         st.session_state.edit_target = None
+        clear_form_keys() # 저장 후 폼 비우기
         time.sleep(1)
         st.rerun()
 
@@ -226,7 +245,6 @@ if not st.session_state.db.empty:
         display_cols = ["매물명", "종합_성사_점수", "점수합계", "소유자_존함", "소유자_연락처", "대리인_연락처", "매물측_최종연락일시", "연락_주기"]
         display_cols = [c for c in display_cols if c in view_df.columns]
         
-        # 전화번호를 tel: 링크로 깔끔하게 변환
         def make_tel_link(phone):
             if pd.isna(phone) or str(phone).strip() in ["", "010"]: return None
             clean = re.sub(r'[^0-9]', '', str(phone))
@@ -236,13 +254,12 @@ if not st.session_state.db.empty:
             if col in view_df.columns:
                 view_df[col] = view_df[col].apply(make_tel_link)
 
-        # 행 클릭(선택) 기능이 추가된 표 그리기
         event = st.dataframe(
             view_df[display_cols], 
             use_container_width=True, 
             hide_index=True,
-            on_select="rerun",             # 클릭 시 새로고침
-            selection_mode="single-row",   # 한 줄만 선택 가능
+            on_select="rerun",
+            selection_mode="single-row",
             column_config={
                 "매물명": st.column_config.TextColumn("매물명 (클릭하여 불러오기)", width="medium"),
                 "종합_성사_점수": st.column_config.NumberColumn("종합 점수", format="%.2f"),
@@ -251,14 +268,13 @@ if not st.session_state.db.empty:
             }
         )
         
-        # 표에서 매물이 클릭(선택)되었을 때 동작
         if len(event.selection.rows) > 0:
             selected_idx = event.selection.rows[0]
             selected_name = view_df.iloc[selected_idx]['매물명']
-            # 현재 불러온 매물과 다르다면 새로 불러오기
             if st.session_state.edit_target != selected_name:
                 st.session_state.edit_target = selected_name
-                st.rerun() # 화면을 새로고침하여 상단 폼을 채움
+                clear_form_keys() # 클릭 시 마법 부리기
+                st.rerun()
     else:
         st.info("검색 결과가 없습니다.")
 else:
